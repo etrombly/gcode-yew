@@ -1,16 +1,15 @@
 [package]
 authors = [
-    "Kelly Thomas Kline <kellytk@sw-e.org>",
-    "Samuel Rounce <me@samuelrounce.co.uk>"
+    "Eric Trombly <etrombly@yahoo.com>",
 ]
-categories = ["gui", "wasm", "web-programming"]
-description = "yew-wasm-pack-minimal demonstrates the minimum code and tooling necessary for a frontend web app with simple deployable artifacts consisting of one HTML file, one JavaScript file, and one WebAssembly file, using Yew, wasm-bindgen, and wasm-pack."
+categories = ["gui", "wasm", "gcode"]
+description = "Minimal gcode parser example"
 edition = "2018"
-keywords = ["yew", "wasm", "wasm-bindgen", "web"]
+keywords = ["yew", "wasm", "wasm-bindgen", "web", "gcode"]
 license = "MIT/Apache-2.0"
 name = "yew-wasm-pack-minimal"
 readme = "README.md"
-repository = "https://github.com/yewstack/yew-wasm-pack-minimal"
+repository = "https://github.com/etrombly/gcode-yew"
 version = "0.1.0"
 
 [lib]
@@ -19,3 +18,5 @@ crate-type = ["cdylib"]
 [dependencies]
 wasm-bindgen = "^0.2"
 yew = "0.8"
+gcode = {git = "https://github.com/Michael-F-Bryan/gcode-rs", default_features = false}
+stdweb = "0.4.20"
