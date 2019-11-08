@@ -1,4 +1,5 @@
 use gcode::{GCode, Mnemonic};
+use libm::F64Ext;
 use stdweb::{
     console,
     traits::*,
@@ -7,6 +8,8 @@ use stdweb::{
 };
 use yew::prelude::*;
 
+// TODO: a lot of gcode has 0,0 as the center and has negative x and y, canvas has 0,0 as top left. Need to handle it
+// TODO: currently all movement is absolute, need to add relative movement
 #[derive(Debug)]
 struct Location {
     x: f64,
@@ -134,6 +137,9 @@ impl State {
                         0 | 1 => {
                             self.parse_G0(code, &context);
                         }
+                        2 | 3 => {
+                            self.parse_G2(code, &context);
+                        }
                         _ => {}
                     },
                     _ => {}
@@ -145,6 +151,7 @@ impl State {
 
     #[allow(non_snake_case)]
     fn parse_G0(&mut self, code: &GCode, context: &CanvasRenderingContext2d) {
+        console!(log, format!("processing {} {:?}", code, self.location));
         if let Some(z) = code.value_for('z') {
             self.location.z = z as f64;
         }
@@ -180,9 +187,61 @@ impl State {
             console!(log, "skipping code, not on display z layer {}", self.location.z - self.display_z);
             draw = false;
         }
-        
+
         if draw {
             context.line_to(self.location.x, self.location.y);
+        }
+        context.stroke();
+    }
+
+    // TODO: currently only handling a G2, need to reverse x1, y1 for G3
+    #[allow(non_snake_case)]
+    fn parse_G2(&mut self, code: &GCode, context: &CanvasRenderingContext2d) {
+        console!(log, format!("processing {} {:?}", code, self.location));
+        if let Some(z) = code.value_for('z') {
+            self.location.z = z as f64;
+        }
+
+        let mut draw = self.draw_moves;
+        let mut color = "black";
+
+        match code.value_for('e') {
+            Some(e) => {
+                draw = true;
+                if e < 0. {
+                    // color retracts red
+                    color = "red";
+                }
+            },
+            // if moves are drawn color them green
+            None => color = "green",
+        }
+        context.set_line_width(1.0);
+        context.begin_path();
+        context.set_stroke_style_color(color);
+        context.move_to(self.location.x, self.location.y);
+        let mut x1 = 0.0;
+        let mut y1 = 0.0;
+
+        if let Some(x) = code.value_for('x') {
+            self.location.x = x.into();
+            if let Some(i) = code.value_for('i') {
+                x1 = self.location.x - i as f64;
+            }
+        }
+        if let Some(y) = code.value_for('y') {
+            self.location.y = y.into();
+            if let Some(j) = code.value_for('j') {
+                y1 = self.location.y - j as f64;
+            }
+        }
+        let r = if let Some(r) = code.value_for('r') {
+            r as f64
+        } else {
+            ((x1 - self.location.x).powf(2.) + (y1 - self.location.y).powf(2.)).sqrt()
+        };
+        if draw {
+            context.arc_to(x1, y1, self.location.x, self.location.y, r).expect("failed to draw arc");
         }
         context.stroke();
     }
