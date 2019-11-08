@@ -1,5 +1,4 @@
 use gcode::{GCode, Mnemonic};
-use libm::F64Ext;
 use stdweb::{
     console,
     traits::*,
@@ -136,9 +135,12 @@ impl State {
             .expect("Didn't find the map canvas.")
             .try_into() // Element -> CanvasElement
             .unwrap(); // cannot be other than a canvas
-                       // size the canvas to match the actual width and height, get's rid of blurriness
+ 
+        // size the canvas to match the actual width and height, gets rid of blurriness
         canvas.set_width(canvas.offset_width() as u32);
         canvas.set_height(canvas.offset_height() as u32);
+
+
         let context: CanvasRenderingContext2d = canvas.get_context().unwrap();
 
         context.clear_rect(0., 0., canvas.width() as f64, canvas.height() as f64);
@@ -148,7 +150,11 @@ impl State {
             z: 0.,
         };
         // another fix for blurry lines
-        context.translate(0.5, 0.5);
+        let translate_x = (canvas.offset_height() as f64 / 2.) + 0.5;
+        let translate_y = (canvas.offset_width() as f64 / 2.) + 0.5;
+        // flip the y axis
+        context.transform(1., 0., 0., -1., 0., canvas.height() as f64);
+        context.translate(translate_x, translate_x);
         context.move_to(0.0, 0.0);
 
         let gcode = self.input.clone();
@@ -169,7 +175,7 @@ impl State {
                 }
             }
         }
-        context.translate(-0.5, -0.5);
+        context.translate(-translate_x, -translate_y);
     }
 
     #[allow(non_snake_case)]
@@ -222,6 +228,7 @@ impl State {
     }
 
     // TODO: currently only handling a G2, need to reverse x1, y1 for G3
+    // TODO: need to calculate x1,y1 if you only have r
     #[allow(non_snake_case)]
     fn parse_G2(&mut self, code: &GCode, context: &CanvasRenderingContext2d) {
         console!(log, format!("processing {} {:?}", code, self.location));
