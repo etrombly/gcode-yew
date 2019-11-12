@@ -20,7 +20,9 @@ struct State {
     input: String,
     location: Location,
     display_z: f64,
+    absolute: bool,
     draw_moves: bool,
+    zoom: f64,
 }
 
 pub struct App {
@@ -33,6 +35,7 @@ pub enum Msg {
     ProcessGcode,
     UpdateInput(String),
     UpdateZ(String),
+    Scroll(f64),
 }
 
 impl Component for App {
@@ -48,7 +51,9 @@ impl Component for App {
                 z: 0.,
             },
             display_z: 0.,
+            absolute: true,
             draw_moves: true,
+            zoom: 1.0,
         };
         App { state }
     }
@@ -56,6 +61,7 @@ impl Component for App {
     fn update(&mut self, msg: Self::Message) -> ShouldRender {
         match msg {
             Msg::ProcessGcode => {
+                self.state.zoom = 1.0;
                 self.state.draw_map();
             }
             Msg::DrawMove => self.state.draw_moves = !self.state.draw_moves,
@@ -65,8 +71,10 @@ impl Component for App {
                 self.state.draw_map();
             }
             Msg::Clear => {
+                self.state.zoom = 1.0;
                 self.state.input = "".to_string();
             }
+            Msg::Scroll(x) => self.state.zoom(x),
         }
         true
     }
@@ -116,7 +124,7 @@ impl App {
                 <p class="message-header">
                     {"Output"}
                 </p>
-                <canvas id="gcode_canvas" class="box" style="width:100%;height:80%;"></canvas>
+                <canvas id="gcode_canvas" class="box" style="width:100%;height:80%;" onmousewheel=|e| Msg::Scroll(e.delta_y())></canvas>
                 <div class="field is-grouped is-grouped-centered">
                     <p class="control"><label class="label">{"Z layer "}</label></p>
                     <input type="range" id="display_z_slider" class="control is-expanded" value=&self.state.display_z oninput=|e| Msg::UpdateZ(e.value)/>
@@ -135,11 +143,12 @@ impl State {
             .expect("Didn't find the map canvas.")
             .try_into() // Element -> CanvasElement
             .unwrap(); // cannot be other than a canvas
- 
+
         // size the canvas to match the actual width and height, gets rid of blurriness
         canvas.set_width(canvas.offset_width() as u32);
         canvas.set_height(canvas.offset_height() as u32);
 
+        self.absolute = true;
 
         let context: CanvasRenderingContext2d = canvas.get_context().unwrap();
 
@@ -155,10 +164,10 @@ impl State {
         // flip the y axis
         context.transform(1., 0., 0., -1., 0., canvas.height() as f64);
 
-                // draw x and y axis lines
+        // draw x and y axis lines
         context.begin_path();
         context.set_stroke_style_color("lightgrey");
-        context.set_line_dash(vec![3.,2.]);
+        context.set_line_dash(vec![3., 2.]);
         context.move_to(0., translate_y);
         context.line_to(canvas.width() as f64, translate_y);
         context.move_to(translate_x, 0.);
@@ -168,9 +177,7 @@ impl State {
 
         context.translate(translate_x, translate_y);
 
-
-        
-        context.move_to(0., 0.);
+        context.scale(self.zoom, self.zoom);
 
         let gcode = self.input.clone();
         let lines = gcode::parse(&gcode);
@@ -184,6 +191,8 @@ impl State {
                         2 | 3 => {
                             self.parse_G2(code, &context);
                         }
+                        90 => self.absolute = true,
+                        91 => self.absolute = false,
                         _ => {}
                     },
                     _ => {}
@@ -195,7 +204,6 @@ impl State {
 
     #[allow(non_snake_case)]
     fn parse_G0(&mut self, code: &GCode, context: &CanvasRenderingContext2d) {
-        console!(log, format!("processing {} {:?}", code, self.location));
         if let Some(z) = code.value_for('z') {
             self.location.z = z as f64;
         }
@@ -214,15 +222,23 @@ impl State {
             // if moves are drawn color them green
             None => color = "lightgreen",
         }
-        context.set_line_width(1.0);
+        context.set_line_width(1.0 / self.zoom);
         context.begin_path();
         context.set_stroke_style_color(color);
         context.move_to(self.location.x, self.location.y);
         if let Some(x) = code.value_for('x') {
-            self.location.x = x.into();
+            if self.absolute {
+                self.location.x = x.into();
+            } else {
+                self.location.x += x as f64;
+            }
         }
         if let Some(y) = code.value_for('y') {
-            self.location.y = y.into();
+            if self.absolute {
+                self.location.y = y.into();
+            } else {
+                self.location.y += y as f64;
+            }
         }
 
         // TODO: figure out how wide the z drawing should be (above and below current z)
@@ -242,10 +258,8 @@ impl State {
         context.stroke();
     }
 
-    // TODO: currently only handling a G2, need to reverse x1, y1 for G3
     #[allow(non_snake_case)]
     fn parse_G2(&mut self, code: &GCode, context: &CanvasRenderingContext2d) -> Option<bool> {
-        console!(log, format!("processing {} {:?}", code, self.location));
         if let Some(z) = code.value_for('z') {
             self.location.z = z as f64;
         }
@@ -264,36 +278,51 @@ impl State {
             // if moves are drawn color them green
             None => color = "lightgreen",
         }
-        context.set_line_width(1.0);
+        context.set_line_width(1.0 / self.zoom);
         context.begin_path();
         context.set_stroke_style_color(color);
         context.move_to(self.location.x, self.location.y);
 
-        let x = code.value_for('x')? as f64;
-        let y = code.value_for('y')? as f64;
-        
+        let x = if self.absolute {
+            code.value_for('x')? as f64
+        } else {
+            code.value_for('x')? as f64 + self.location.x
+        };
+        let y = if self.absolute {
+            code.value_for('y')? as f64
+        } else {
+            code.value_for('y')? as f64 + self.location.x
+        };
+
         // TODO: handle i or j not being entered
-        let (center_x, center_y, radius) = if let (Some(i),Some(j)) =  (code.value_for('i'), code.value_for('j')) {
+        let (center_x, center_y, radius) = if let (Some(i), Some(j)) =
+            (code.value_for('i'), code.value_for('j'))
+        {
             let x1 = self.location.x + i as f64;
             let y1 = self.location.y + j as f64;
-            (x1, y1, ((x1 - self.location.x).powi(2) + (y1 - self.location.y).powi(2)).sqrt())
-        } else if let Some(r) = code.value_for('r'){
+            (
+                x1,
+                y1,
+                ((x1 - self.location.x).powi(2) + (y1 - self.location.y).powi(2)).sqrt(),
+            )
+        } else if let Some(r) = code.value_for('r') {
             let radius = r as f64;
 
-            let q = ((x-self.location.x).powi(2) + (y-self.location.y).powi(2)).sqrt();
+            let q = ((x - self.location.x).powi(2) + (y - self.location.y).powi(2)).sqrt();
 
             let y3 = (self.location.y + y) / 2.;
             let x3 = (self.location.x + x) / 2.;
 
-            let basex = (radius.powi(2) - (q / 2.).powi(2)).sqrt() * ((self.location.y-y) / q);
-            let basey = (radius.powi(2) - (q / 2.).powi(2)).sqrt() * ((x-self.location.x) / q);
+            let basex = (radius.powi(2) - (q / 2.).powi(2)).sqrt() * ((self.location.y - y) / q);
+            let basey = (radius.powi(2) - (q / 2.).powi(2)).sqrt() * ((x - self.location.x) / q);
 
+            // TODO: center may be at -basex -basey, need to figure out how to pick
             let centerx1 = x3 + basex;
             let centery1 = y3 + basey;
 
             (centerx1, centery1, radius)
         } else {
-            return None
+            return None;
         };
 
         let angle1 = (self.location.y - center_y).atan2(self.location.x - center_x);
@@ -301,6 +330,18 @@ impl State {
 
         self.location.x = x;
         self.location.y = y;
+
+        // TODO: figure out how wide the z drawing should be (above and below current z)
+        // if the code isn't on the display layer don't draw
+        if self.location.z - self.display_z > 0.1 || self.location.z - self.display_z < -0.1 {
+            console!(
+                log,
+                "skipping code, not on display z layer {}",
+                self.location.z - self.display_z
+            );
+            draw = false;
+        }
+
         if draw {
             if code.major_number() == 2 {
                 context.arc(center_x, center_y, radius, angle1, angle2, true);
@@ -310,5 +351,13 @@ impl State {
         }
         context.stroke();
         Some(true)
+    }
+
+    fn zoom(&mut self, delta: f64) {
+        let clicks = delta as f64 / -40.;
+        let scale_factor = 1.1_f64;
+        let factor = scale_factor.powf(clicks);
+        self.zoom *= factor;
+        self.draw_map();
     }
 }
