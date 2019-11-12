@@ -166,7 +166,7 @@ impl State {
 
         // draw x and y axis lines
         context.begin_path();
-        context.set_stroke_style_color("lightgrey");
+        context.set_stroke_style_color("grey");
         context.set_line_dash(vec![3., 2.]);
         context.move_to(0., translate_y);
         context.line_to(canvas.width() as f64, translate_y);
@@ -220,7 +220,7 @@ impl State {
                 }
             }
             // if moves are drawn color them green
-            None => color = "lightgreen",
+            None => color = "green",
         }
         context.set_line_width(1.0 / self.zoom);
         context.begin_path();
@@ -276,7 +276,7 @@ impl State {
                 }
             }
             // if moves are drawn color them green
-            None => color = "lightgreen",
+            None => color = "green",
         }
         context.set_line_width(1.0 / self.zoom);
         context.begin_path();
