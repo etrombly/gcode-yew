@@ -150,12 +150,27 @@ impl State {
             z: 0.,
         };
         // another fix for blurry lines
-        let translate_x = (canvas.offset_height() as f64 / 2.) + 0.5;
-        let translate_y = (canvas.offset_width() as f64 / 2.) + 0.5;
+        let translate_x = (canvas.width() as f64 / 2.) + 0.5;
+        let translate_y = (canvas.height() as f64 / 2.) + 0.5;
         // flip the y axis
         context.transform(1., 0., 0., -1., 0., canvas.height() as f64);
-        context.translate(translate_x, translate_x);
-        context.move_to(0.0, 0.0);
+
+                // draw x and y axis lines
+        context.begin_path();
+        context.set_stroke_style_color("lightgrey");
+        context.set_line_dash(vec![3.,2.]);
+        context.move_to(0., translate_y);
+        context.line_to(canvas.width() as f64, translate_y);
+        context.move_to(translate_x, 0.);
+        context.line_to(translate_x, canvas.height() as f64);
+        context.stroke();
+        context.set_line_dash(vec![]);
+
+        context.translate(translate_x, translate_y);
+
+
+        
+        context.move_to(0., 0.);
 
         let gcode = self.input.clone();
         let lines = gcode::parse(&gcode);
@@ -197,7 +212,7 @@ impl State {
                 }
             }
             // if moves are drawn color them green
-            None => color = "green",
+            None => color = "lightgreen",
         }
         context.set_line_width(1.0);
         context.begin_path();
@@ -228,9 +243,8 @@ impl State {
     }
 
     // TODO: currently only handling a G2, need to reverse x1, y1 for G3
-    // TODO: need to calculate x1,y1 if you only have r
     #[allow(non_snake_case)]
-    fn parse_G2(&mut self, code: &GCode, context: &CanvasRenderingContext2d) {
+    fn parse_G2(&mut self, code: &GCode, context: &CanvasRenderingContext2d) -> Option<bool> {
         console!(log, format!("processing {} {:?}", code, self.location));
         if let Some(z) = code.value_for('z') {
             self.location.z = z as f64;
@@ -248,37 +262,53 @@ impl State {
                 }
             }
             // if moves are drawn color them green
-            None => color = "green",
+            None => color = "lightgreen",
         }
         context.set_line_width(1.0);
         context.begin_path();
         context.set_stroke_style_color(color);
         context.move_to(self.location.x, self.location.y);
-        let mut x1 = 0.0;
-        let mut y1 = 0.0;
 
-        if let Some(x) = code.value_for('x') {
-            self.location.x = x.into();
-            if let Some(i) = code.value_for('i') {
-                x1 = self.location.x - i as f64;
-            }
-        }
-        if let Some(y) = code.value_for('y') {
-            self.location.y = y.into();
-            if let Some(j) = code.value_for('j') {
-                y1 = self.location.y - j as f64;
-            }
-        }
-        let r = if let Some(r) = code.value_for('r') {
-            r as f64
+        let x = code.value_for('x')? as f64;
+        let y = code.value_for('y')? as f64;
+        
+        // TODO: handle i or j not being entered
+        let (center_x, center_y, radius) = if let (Some(i),Some(j)) =  (code.value_for('i'), code.value_for('j')) {
+            let x1 = self.location.x + i as f64;
+            let y1 = self.location.y + j as f64;
+            (x1, y1, ((x1 - self.location.x).powi(2) + (y1 - self.location.y).powi(2)).sqrt())
+        } else if let Some(r) = code.value_for('r'){
+            let radius = r as f64;
+
+            let q = ((x-self.location.x).powi(2) + (y-self.location.y).powi(2)).sqrt();
+
+            let y3 = (self.location.y + y) / 2.;
+            let x3 = (self.location.x + x) / 2.;
+
+            let basex = (radius.powi(2) - (q / 2.).powi(2)).sqrt() * ((self.location.y-y) / q);
+            let basey = (radius.powi(2) - (q / 2.).powi(2)).sqrt() * ((x-self.location.x) / q);
+
+            let centerx1 = x3 + basex;
+            let centery1 = y3 + basey;
+
+            (centerx1, centery1, radius)
         } else {
-            ((x1 - self.location.x).powf(2.) + (y1 - self.location.y).powf(2.)).sqrt()
+            return None
         };
+
+        let angle1 = (self.location.y - center_y).atan2(self.location.x - center_x);
+        let angle2 = (y - center_y).atan2(x - center_x);
+
+        self.location.x = x;
+        self.location.y = y;
         if draw {
-            context
-                .arc_to(x1, y1, self.location.x, self.location.y, r)
-                .expect("failed to draw arc");
+            if code.major_number() == 2 {
+                context.arc(center_x, center_y, radius, angle1, angle2, true);
+            } else {
+                context.arc(center_x, center_y, radius, angle1, angle2, false);
+            }
         }
         context.stroke();
+        Some(true)
     }
 }
