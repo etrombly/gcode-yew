@@ -7,8 +7,6 @@ use stdweb::{
 };
 use yew::prelude::*;
 
-// TODO: a lot of gcode has 0,0 as the center and has negative x and y, canvas has 0,0 as top left. Need to handle it
-// TODO: currently all movement is absolute, need to add relative movement
 #[derive(Debug)]
 struct Location {
     x: f64,
@@ -23,6 +21,8 @@ struct State {
     absolute: bool,
     draw_moves: bool,
     zoom: f64,
+    translate: (f64, f64),
+    dragging: Option<(f64, f64, f64, f64)>,
 }
 
 pub struct App {
@@ -36,6 +36,9 @@ pub enum Msg {
     UpdateInput(String),
     UpdateZ(String),
     Scroll(f64),
+    DragStart(f64, f64),
+    Dragging(f64, f64),
+    DragStop,
 }
 
 impl Component for App {
@@ -54,6 +57,8 @@ impl Component for App {
             absolute: true,
             draw_moves: true,
             zoom: 1.0,
+            translate: (0., 0.),
+            dragging: None,
         };
         App { state }
     }
@@ -62,6 +67,7 @@ impl Component for App {
         match msg {
             Msg::ProcessGcode => {
                 self.state.zoom = 1.0;
+                self.state.translate = (0., 0.);
                 self.state.draw_map();
             }
             Msg::DrawMove => self.state.draw_moves = !self.state.draw_moves,
@@ -73,8 +79,17 @@ impl Component for App {
             Msg::Clear => {
                 self.state.zoom = 1.0;
                 self.state.input = "".to_string();
+                self.state.translate = (0., 0.);
             }
             Msg::Scroll(x) => self.state.zoom(x),
+            Msg::DragStart(x, y) => self.state.dragging = Some((x, y, self.state.translate.0, self.state.translate.1)),
+            Msg::Dragging(x, y) => {
+                if let Some((start_x, start_y, translate_x, translate_y)) = self.state.dragging {
+                    self.state.translate = (translate_x + x - start_x, translate_y + y - start_y);
+                    self.state.draw_map();
+                }
+            },
+            Msg::DragStop => self.state.dragging = None,
         }
         true
     }
@@ -124,7 +139,11 @@ impl App {
                 <p class="message-header">
                     {"Output"}
                 </p>
-                <canvas id="gcode_canvas" class="box" style="width:100%;height:80%;" onmousewheel=|e| Msg::Scroll(e.delta_y())></canvas>
+                <canvas id="gcode_canvas" class="box" style="width:100%;height:80%;" 
+                    onmousewheel=|e| Msg::Scroll(e.delta_y()) 
+                    onmousedown=|e| Msg::DragStart(e.offset_x(), e.offset_y())
+                    onmousemove=|e| Msg::Dragging(e.offset_x(), e.offset_y())
+                    onmouseup=|_| Msg::DragStop></canvas>
                 <div class="field is-grouped is-grouped-centered">
                     <p class="control"><label class="label">{"Z layer "}</label></p>
                     <input type="range" id="display_z_slider" class="control is-expanded" value=&self.state.display_z oninput=|e| Msg::UpdateZ(e.value)/>
@@ -165,6 +184,7 @@ impl State {
         context.transform(1., 0., 0., -1., 0., canvas.height() as f64);
 
         // draw x and y axis lines
+        context.translate(self.translate.0, -self.translate.1);
         context.begin_path();
         context.set_stroke_style_color("grey");
         context.set_line_dash(vec![3., 2.]);
