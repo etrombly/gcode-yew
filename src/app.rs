@@ -13,6 +13,7 @@ struct Location {
     y: f64,
     z: f64,
 }
+
 #[derive(Debug)]
 struct State {
     input: String,
@@ -27,6 +28,7 @@ struct State {
 
 pub struct App {
     state: State,
+    link: ComponentLink<Self>,
 }
 
 pub enum Msg {
@@ -45,7 +47,7 @@ impl Component for App {
     type Message = Msg;
     type Properties = ();
 
-    fn create(_: Self::Properties, _: ComponentLink<Self>) -> Self {
+    fn create(_: Self::Properties, link: ComponentLink<Self>) -> Self {
         let state = State {
             input: "".to_string(),
             location: Location {
@@ -60,7 +62,7 @@ impl Component for App {
             translate: (0., 0.),
             dragging: None,
         };
-        App { state }
+        App { state, link }
     }
 
     fn update(&mut self, msg: Self::Message) -> ShouldRender {
@@ -93,30 +95,32 @@ impl Component for App {
         }
         true
     }
-}
 
-impl Renderable<App> for App {
-    fn view(&self) -> Html<Self> {
+    fn view(&self) -> Html {
         html! {
             <div class="columns is-centered">
-                { self.view_input() }
-                { self.view_canvas() }
+                { self.view_input(&self.link) }
+                { self.view_canvas(&self.link) }
             </div>
         }
     }
 }
 
 impl App {
-    fn view_input(&self) -> Html<App> {
+    fn view_input(&self, link: &ComponentLink<App>) -> Html {
+        let clear_handler = link.callback(|_| Msg::Clear);
+        let gcode_handler = link.callback(|_| Msg::ProcessGcode);
+        let draw_handler = link.callback(|_| Msg::DrawMove);
+        let input_handler = link.callback(|e: InputData| Msg::UpdateInput(e.value));
         html! {
             <div class="column is-one-quarter">
                 <p class="message-header">
                     {"GCode"}
                 </p>
-                <textarea id="gcode_input" class="textarea" rows="20" placeholder="Enter GCode here" value=&self.state.input oninput=|e| Msg::UpdateInput(e.value)/>
+                <textarea id="gcode_input" class="textarea" rows="20" placeholder="Enter GCode here" value=&self.state.input oninput=input_handler/>
                 <div class="buttons is-grouped is-right">
-                    <p class="control"><button class="button is-dark" onclick=|_| Msg::Clear>{"Clear"}</button></p>
-                    <p class="control"><button class="button is-dark" onclick=|_| Msg::ProcessGcode>{"Process"}</button></p>
+                    <p class="control"><button class="button is-dark" onclick=clear_handler>{"Clear"}</button></p>
+                    <p class="control"><button class="button is-dark" onclick=gcode_handler>{"Process"}</button></p>
                 </div>
                 <p class="message is-dark">
                     <p class="message-header">
@@ -124,7 +128,7 @@ impl App {
                     </p>
                     <div class="message-body">
                         <label class="checkbox">
-                            <input type="checkbox" id="draw_move" class="checkbox" checked=self.state.draw_moves onclick=|_| Msg::DrawMove/>
+                            <input type="checkbox" id="draw_move" class="checkbox" checked=self.state.draw_moves onclick=draw_handler/>
                             {"Draw Moves"}
                         </label>
                     </div>
@@ -133,21 +137,27 @@ impl App {
         }
     }
 
-    fn view_canvas(&self) -> Html<App> {
+    fn view_canvas(&self, link: &ComponentLink<App>) -> Html {
+        let wheel_handler = link.callback(|e: MouseWheelEvent| Msg::Scroll(e.delta_y()));
+        let down_handler = link.callback(|e: MouseDownEvent| Msg::DragStart(e.offset_x(), e.offset_y()));
+        let move_handler = link.callback(|e: MouseMoveEvent| Msg::Dragging(e.offset_x(), e.offset_y()));
+        let up_handler = link.callback(|_| Msg::DragStop);
+        let input_handler = link.callback(|e: InputData| Msg::UpdateZ(e.value));
+        let input_handler2 = link.callback(|e: InputData| Msg::UpdateZ(e.value));
         html! {
             <div class="column is-two-thirds">
                 <p class="message-header">
                     {"Output"}
                 </p>
                 <canvas id="gcode_canvas" class="box" style="width:100%;height:80%;" 
-                    onmousewheel=|e| Msg::Scroll(e.delta_y()) 
-                    onmousedown=|e| Msg::DragStart(e.offset_x(), e.offset_y())
-                    onmousemove=|e| Msg::Dragging(e.offset_x(), e.offset_y())
-                    onmouseup=|_| Msg::DragStop></canvas>
+                    onmousewheel=wheel_handler
+                    onmousedown=down_handler
+                    onmousemove=move_handler
+                    onmouseup=up_handler></canvas>
                 <div class="field is-grouped is-grouped-centered">
                     <p class="control"><label class="label">{"Z layer "}</label></p>
-                    <input type="range" id="display_z_slider" class="control is-expanded" value=&self.state.display_z oninput=|e| Msg::UpdateZ(e.value)/>
-                    <input type="text" class="tag is-dark" size="4" value=&self.state.display_z oninput=|e| Msg::UpdateZ(e.value)/>
+                    <input type="range" id="display_z_slider" class="control is-expanded" value=&self.state.display_z oninput=input_handler/>
+                    <input type="text" class="tag is-dark" size="4" value=&self.state.display_z oninput=input_handler2/>
                 </div>
             </div>
         }
