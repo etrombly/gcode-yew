@@ -1,10 +1,8 @@
-use gcode::{GCode, Mnemonic};
-use stdweb::{
-    console,
-    traits::*,
-    unstable::TryInto,
-    web::{document, html_element::CanvasElement, CanvasRenderingContext2d},
-};
+use arrayvec::ArrayVec;
+use gcode::{GCode, Mnemonic, Word};
+use wasm_bindgen::JsCast;
+use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, MouseEvent, WheelEvent};
+use js_sys::Array;
 use yew::prelude::*;
 
 #[derive(Debug)]
@@ -84,13 +82,15 @@ impl Component for App {
                 self.state.translate = (0., 0.);
             }
             Msg::Scroll(x) => self.state.zoom(x),
-            Msg::DragStart(x, y) => self.state.dragging = Some((x, y, self.state.translate.0, self.state.translate.1)),
+            Msg::DragStart(x, y) => {
+                self.state.dragging = Some((x, y, self.state.translate.0, self.state.translate.1))
+            }
             Msg::Dragging(x, y) => {
                 if let Some((start_x, start_y, translate_x, translate_y)) = self.state.dragging {
                     self.state.translate = (translate_x + x - start_x, translate_y + y - start_y);
                     self.state.draw_map();
                 }
-            },
+            }
             Msg::DragStop => self.state.dragging = None,
         }
         true
@@ -138,9 +138,11 @@ impl App {
     }
 
     fn view_canvas(&self, link: &ComponentLink<App>) -> Html {
-        let wheel_handler = link.callback(|e: MouseWheelEvent| Msg::Scroll(e.delta_y()));
-        let down_handler = link.callback(|e: MouseDownEvent| Msg::DragStart(e.offset_x(), e.offset_y()));
-        let move_handler = link.callback(|e: MouseMoveEvent| Msg::Dragging(e.offset_x(), e.offset_y()));
+        let wheel_handler = link.callback(|e: WheelEvent| Msg::Scroll(e.delta_y()));
+        let down_handler =
+            link.callback(|e: MouseEvent| Msg::DragStart(e.offset_x().into(), e.offset_y().into()));
+        let move_handler =
+            link.callback(|e: MouseEvent| Msg::Dragging(e.offset_x().into(), e.offset_y().into()));
         let up_handler = link.callback(|_| Msg::DragStop);
         let input_handler = link.callback(|e: InputData| Msg::UpdateZ(e.value));
         let input_handler2 = link.callback(|e: InputData| Msg::UpdateZ(e.value));
@@ -149,7 +151,7 @@ impl App {
                 <p class="message-header">
                     {"Output"}
                 </p>
-                <canvas id="gcode_canvas" class="box" style="width:100%;height:80%;" 
+                <canvas id="gcode_canvas" class="box" style="width:100%;height:80%;"
                     onmousewheel=wheel_handler
                     onmousedown=down_handler
                     onmousemove=move_handler
@@ -166,12 +168,13 @@ impl App {
 
 impl State {
     fn draw_map(&mut self) {
-        let canvas: CanvasElement = document()
+        let document = web_sys::window().unwrap().document().unwrap();
+        let canvas: HtmlCanvasElement = document
             .query_selector("#gcode_canvas")
             .unwrap()
             .expect("Didn't find the map canvas.")
-            .try_into() // Element -> CanvasElement
-            .unwrap(); // cannot be other than a canvas
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .unwrap();
 
         // size the canvas to match the actual width and height, gets rid of blurriness
         canvas.set_width(canvas.offset_width() as u32);
@@ -179,7 +182,12 @@ impl State {
 
         self.absolute = true;
 
-        let context: CanvasRenderingContext2d = canvas.get_context().unwrap();
+        let context: CanvasRenderingContext2d = canvas
+            .get_context("2d")
+            .unwrap()
+            .unwrap()
+            .dyn_into::<web_sys::CanvasRenderingContext2d>()
+            .unwrap();
 
         context.clear_rect(0., 0., canvas.width() as f64, canvas.height() as f64);
         self.location = Location {
@@ -191,23 +199,31 @@ impl State {
         let translate_x = (canvas.width() as f64 / 2.) + 0.5;
         let translate_y = (canvas.height() as f64 / 2.) + 0.5;
         // flip the y axis
-        context.transform(1., 0., 0., -1., 0., canvas.height() as f64);
+        context
+            .transform(1., 0., 0., -1., 0., canvas.height() as f64)
+            .unwrap();
 
         // draw x and y axis lines
-        context.translate(self.translate.0, -self.translate.1);
+        context
+            .translate(self.translate.0, -self.translate.1)
+            .unwrap();
         context.begin_path();
-        context.set_stroke_style_color("grey");
-        context.set_line_dash(vec![3., 2.]);
+        context.set_stroke_style(&"grey".into());
+        let array = Array::new();
+        array.push(&"3".into());
+        array.push(&"2".into());
+        context.set_line_dash(&array).unwrap();
         context.move_to(0., translate_y);
         context.line_to(canvas.width() as f64, translate_y);
         context.move_to(translate_x, 0.);
         context.line_to(translate_x, canvas.height() as f64);
         context.stroke();
-        context.set_line_dash(vec![]);
+        let array2 = Array::new();
+        context.set_line_dash(&array2).unwrap();
 
-        context.translate(translate_x, translate_y);
+        context.translate(translate_x, translate_y).unwrap();
 
-        context.scale(self.zoom, self.zoom);
+        context.scale(self.zoom, self.zoom).unwrap();
 
         let gcode = self.input.clone();
         let lines = gcode::parse(&gcode);
@@ -229,11 +245,11 @@ impl State {
                 }
             }
         }
-        context.translate(-translate_x, -translate_y);
+        context.translate(-translate_x, -translate_y).unwrap();
     }
 
     #[allow(non_snake_case)]
-    fn parse_G0(&mut self, code: &GCode, context: &CanvasRenderingContext2d) {
+    fn parse_G0(&mut self, code: &GCode<ArrayVec<[Word; 5]>>, context: &CanvasRenderingContext2d) {
         if let Some(z) = code.value_for('z') {
             self.location.z = z as f64;
         }
@@ -254,7 +270,7 @@ impl State {
         }
         context.set_line_width(1.0 / self.zoom);
         context.begin_path();
-        context.set_stroke_style_color(color);
+        context.set_stroke_style(&color.into());
         context.move_to(self.location.x, self.location.y);
         if let Some(x) = code.value_for('x') {
             if self.absolute {
@@ -274,11 +290,6 @@ impl State {
         // TODO: figure out how wide the z drawing should be (above and below current z)
         // if the code isn't on the display layer don't draw
         if self.location.z - self.display_z > 0.1 || self.location.z - self.display_z < -0.1 {
-            console!(
-                log,
-                "skipping code, not on display z layer {}",
-                self.location.z - self.display_z
-            );
             draw = false;
         }
 
@@ -289,7 +300,11 @@ impl State {
     }
 
     #[allow(non_snake_case)]
-    fn parse_G2(&mut self, code: &GCode, context: &CanvasRenderingContext2d) -> Option<bool> {
+    fn parse_G2(
+        &mut self,
+        code: &GCode<ArrayVec<[Word; 5]>>,
+        context: &CanvasRenderingContext2d,
+    ) -> Option<bool> {
         if let Some(z) = code.value_for('z') {
             self.location.z = z as f64;
         }
@@ -310,7 +325,7 @@ impl State {
         }
         context.set_line_width(1.0 / self.zoom);
         context.begin_path();
-        context.set_stroke_style_color(color);
+        context.set_stroke_style(&color.into());
         context.move_to(self.location.x, self.location.y);
 
         let x = if self.absolute {
@@ -364,19 +379,18 @@ impl State {
         // TODO: figure out how wide the z drawing should be (above and below current z)
         // if the code isn't on the display layer don't draw
         if self.location.z - self.display_z > 0.1 || self.location.z - self.display_z < -0.1 {
-            console!(
-                log,
-                "skipping code, not on display z layer {}",
-                self.location.z - self.display_z
-            );
             draw = false;
         }
 
         if draw {
             if code.major_number() == 2 {
-                context.arc(center_x, center_y, radius, angle1, angle2, true);
+                context
+                    .arc_with_anticlockwise(center_x, center_y, radius, angle1, angle2, true)
+                    .unwrap();
             } else {
-                context.arc(center_x, center_y, radius, angle1, angle2, false);
+                context
+                    .arc_with_anticlockwise(center_x, center_y, radius, angle1, angle2, false)
+                    .unwrap();
             }
         }
         context.stroke();
