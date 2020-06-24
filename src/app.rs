@@ -1,8 +1,7 @@
-use arrayvec::ArrayVec;
-use gcode::{GCode, Mnemonic, Word};
+use gcode::{GCode, Mnemonic};
+use js_sys::Array;
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, MouseEvent, WheelEvent};
-use js_sys::Array;
 use yew::prelude::*;
 
 #[derive(Debug)]
@@ -94,6 +93,10 @@ impl Component for App {
             Msg::DragStop => self.state.dragging = None,
         }
         true
+    }
+
+    fn change(&mut self, _: <Self as yew::html::Component>::Properties) -> bool {
+        todo!()
     }
 
     fn view(&self) -> Html {
@@ -249,7 +252,8 @@ impl State {
     }
 
     #[allow(non_snake_case)]
-    fn parse_G0(&mut self, code: &GCode<ArrayVec<[Word; 5]>>, context: &CanvasRenderingContext2d) {
+    fn parse_G0(&mut self, code: &GCode, context: &CanvasRenderingContext2d) {
+        //fn parse_G0(&mut self, code: &GCode<ArrayVec<[Word; 5]>>, context: &CanvasRenderingContext2d) {
         if let Some(z) = code.value_for('z') {
             self.location.z = z as f64;
         }
@@ -302,7 +306,8 @@ impl State {
     #[allow(non_snake_case)]
     fn parse_G2(
         &mut self,
-        code: &GCode<ArrayVec<[Word; 5]>>,
+        code: &GCode,
+        //code: &GCode<ArrayVec<[Word; 5]>>,
         context: &CanvasRenderingContext2d,
     ) -> Option<bool> {
         if let Some(z) = code.value_for('z') {
