@@ -1,4 +1,4 @@
-use gcode::{GCode, Mnemonic};
+use gcode::{GCode, Mnemonic, Parser, Nop, buffers::DefaultBuffers};
 use js_sys::Array;
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, MouseEvent, WheelEvent};
@@ -229,7 +229,7 @@ impl State {
         context.scale(self.zoom, self.zoom).unwrap();
 
         let gcode = self.input.clone();
-        let lines = gcode::parse(&gcode);
+        let lines: Parser<Nop, DefaultBuffers> = Parser::new(&gcode, Nop);
         for line in lines {
             for code in line.gcodes() {
                 match code.mnemonic() {
